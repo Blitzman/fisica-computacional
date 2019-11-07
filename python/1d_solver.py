@@ -1,100 +1,134 @@
 import argparse
 import logging
 import sys
-import scipy.sparse
 
 import numpy as np
 import matplotlib.pyplot as plt
 
-log = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 
-def source(x):
+def source(x: float) -> float:
+    """ Source function for the Poisson equation.
+
+    Args:
+        x: the x_i value to evaluate the function at.
+
+    Returns:
+        double: the function value evaluated at x_i.
+
+    """
     return 1.0 - 2.0 * x * x
 
 def fast_tridiagonal_solver(a, b, c, w, u):
+    """ Alternative solver for tridiagonal matrix.
 
-    assert(a.size == b.size)
-    assert(b.size == c.size)
-    assert(c.size == w.size)
+    This alternative solver makes use of the a,b,c decomposition of the tridiag.
+    matrix M to solve for u = M^-1 w. The decomposition avoids the costly M^-1.
 
-    n = a.size-2
+    Args:
+        a: first diagonal of tridiagonal M.
+        b: second diagonal of tridiagonal M.
+        c: third diagonal of tridiagonal M.
+        w: source terms.
+        u: u-values that will be solved.
 
-    x = np.zeros(n)
-    y = np.zeros(n)
+    """
 
-    x[n-1] = -a[n] / b[n]
-    y[n-1] = w[n] / b[n]
+    assert a.size == b.size
+    assert b.size == c.size
+    assert c.size == w.size
 
-    for i in range (n-2, 0):
-        x[i] = -a[i+1] / (b[i+1] + c[i+1] * x[i+1])
-        y[i] = (w[i+1] - c[i+1] * y[i+1]) / (b[i+1] + c[i+1] * x[i+1])
+    _n = a.size-2
 
-    x[0] = 0.0
-    y[0] = (w[1] - c[1] * y[1]) / (b[1] + c[1] * x[1])
+    _x = np.zeros(_n)
+    _y = np.zeros(_n)
 
-    u[1] = y[0]
-    for i in range(1, n):
-        u[i+1] = x[i] * u[i] + y[i]
+    _x[_n-1] = -a[_n] / b[_n]
+    _y[_n-1] = w[_n] / b[_n]
+
+    for i in range(_n - 2, 0, -1):
+        _x[i] = -a[i+1] / (b[i+1] + c[i+1] * _x[i+1])
+        _y[i] = (w[i+1] - c[i+1] * _y[i+1]) / (b[i+1] + c[i+1] * _x[i+1])
+
+    _x[0] = 0.0
+    _y[0] = (w[1] - c[1] * _y[1]) / (b[1] + c[1] * _x[1])
+
+    u[1] = _y[0]
+    for i in range(1, _n):
+        u[i+1] = _x[i] * u[i] + _y[i]
 
 def solve(args):
 
-    n = 100
-    x_l = 0.0
-    x_h = 1.0
-    alpha_l = 1.0
-    alpha_h = 1.0
-    beta_l = -1.0
-    beta_h = 1.0
-    gamma_l = 1.0
-    gamma_h = 1.0
-    dx = (x_h - x_l) / (n + 1)
+    _n = args.n
+    _x_l = args.x_l
+    _x_h = args.x_h
+    _alpha_l = args.alpha_l
+    _alpha_h = args.alpha_h
+    _beta_l = args.beta_l
+    _beta_h = args.beta_h
+    _gamma_l = args.gamma_l
+    _gamma_h = args.gamma_h
+    _dx = (_x_h - _x_l) / (_n + 1)
 
-    # Initialize the tridiagonal matrix.
-    tridiagonal_a = np.zeros(n+2)
-    tridiagonal_b = np.zeros(n+2)
-    tridiagonal_c = np.zeros(n+2)
+    # Initialize the tridiagonal matrix decompositions.
+    _tridiagonal_a = np.zeros(_n+2)
+    _tridiagonal_b = np.zeros(_n+2)
+    _tridiagonal_c = np.zeros(_n+2)
 
-    tridiagonal_a[2:n+1] = 1.0
-    tridiagonal_b[1:n+1] = -2.0
-    tridiagonal_b[1] -= beta_l / (alpha_l * dx - beta_l)
-    tridiagonal_b[n] += beta_h / (alpha_h * dx + beta_h) 
-    tridiagonal_c[:n] = 1.0
+    _tridiagonal_a[2:_n+1] = 1.0
+    _tridiagonal_b[1:_n+1] = -2.0
+    _tridiagonal_b[1] -= _beta_l / (_alpha_l * _dx - _beta_l)
+    _tridiagonal_b[_n] += _beta_h / (_alpha_h * _dx + _beta_h) 
+    _tridiagonal_c[:_n] = 1.0
 
-    log.info(tridiagonal_a)
-    log.info(tridiagonal_b)
-    log.info(tridiagonal_c)
+    LOG.info("Tridiagonal A: %s", _tridiagonal_a)
+    LOG.info("Tridiagonal B: %s", _tridiagonal_b)
+    LOG.info("Tridiagonal C: %s", _tridiagonal_c)
 
     # Initialize source terms vector.
-    source_terms = np.zeros(n+2)
-    for i in range(1, n+1):
-        source_terms[i] = source(i) * dx * dx
-    source_terms[1] -= gamma_l * dx / (alpha_l * dx - beta_l)
-    source_terms[n] -= gamma_h * dx / (alpha_h * dx + beta_h)
+    _source_terms = np.zeros(_n+2)
+    for i in range(0, _n+1):
+        _x_i = _x_l + (i * (_x_h - _x_l)) / (_n+1)
+        _source_terms[i] = source(_x_i) * _dx * _dx
+    _source_terms[1] -= _gamma_l * _dx / (_alpha_l * _dx - _beta_l)
+    _source_terms[_n] -= _gamma_h * _dx / (_alpha_h * _dx + _beta_h)
 
-    log.info(source_terms)
+    LOG.info("Source terms: %s", _source_terms)
 
-    # Fast invert tridiagonal matrix equation.
-    u = np.zeros(n+2)
-    fast_tridiagonal_solver(tridiagonal_a,
-                            tridiagonal_b,
-                            tridiagonal_c,
-                            source_terms,
-                            u)
+    # Fast solve tridiagonal matrix equation.
+    _u = np.zeros(_n+2)
+    fast_tridiagonal_solver(_tridiagonal_a,
+                            _tridiagonal_b,
+                            _tridiagonal_c,
+                            _source_terms,
+                            _u)
 
     # Compute u-values.
-    u[0] = (gamma_l * dx - beta_l * u[1]) / (alpha_l * dx - beta_l)
-    u[n+1] = (gamma_h * dx + beta_h * u[n]) / (alpha_h * dx + beta_h)
+    _u[0] = (_gamma_l * _dx - _beta_l * _u[1]) / (_alpha_l * _dx - _beta_l)
+    _u[_n+1] = (_gamma_h * _dx + _beta_h * _u[_n]) / (_alpha_h * _dx + _beta_h)
 
     # Plot
-    plt.plot(np.linspace(x_l, x_h, n+2), u)
+    plt.plot(np.linspace(_x_l, _x_h, _n+2), _u)
+    plt.ylim((0.7, 0.9))
+    plt.xlabel("x_i", fontsize=16)
+    plt.ylabel("u", fontsize=16)
     plt.show()
 
 
 if __name__ == "__main__":
 
-    parser_ = argparse.ArgumentParser(description="Parameters")
-    args_ = parser_.parse_args()
+    _PARSER = argparse.ArgumentParser(description="Parameters")
+    _PARSER.add_argument('--n', default='100', type=int)
+    _PARSER.add_argument('--x_l', default='0.0', type=float)
+    _PARSER.add_argument('--x_h', default='1.0', type=float)
+    _PARSER.add_argument('--alpha_l', default='1.0', type=float)
+    _PARSER.add_argument('--alpha_h', default='1.0', type=float)
+    _PARSER.add_argument('--beta_l', default='-1.0', type=float)
+    _PARSER.add_argument('--beta_h', default='1.0', type=float)
+    _PARSER.add_argument('--gamma_l', default='1.0', type=float)
+    _PARSER.add_argument('--gamma_h', default='1.0', type=float)
+    _ARGS = _PARSER.parse_args()
 
     logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
-    solve(args_)
+    solve(_ARGS)

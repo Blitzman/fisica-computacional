@@ -3,6 +3,23 @@
 
 """ Molecular dynamics.
 
+    This script performs a simulation of molecular dynamics by placing a set of
+    particles in a regular grid.
+    
+    The velocity Verlet algorithm is used to integrate position, velocity,
+    and acceleration.
+    
+    The interaction potential is Lennard-Jones 14/8.
+
+    The simulation is carried out with periodic boundaries and forces which are
+    computed by placing pseudo-particles in such boundaries.
+
+    Running the code:
+
+        python3 molecular_dynamics.py --h
+
+        To obtain help about the different parameters that can be customized.
+
 """
 
 import argparse
@@ -110,6 +127,35 @@ def generate_boundary_pseudo_particles(
 
     return np.array(pseudo_particles)
 
+def compute_temperature(
+        velocities: np.array
+) -> float:
+    """ Calculate system temperature.
+
+    Using the velocity of each particle (and assuming m=1) we can compute the
+    kinetic energy for each one of them K = 0.5 * m * v^2. Averaging the
+    kinectic energy across the whole system (and assuming 1.0 for coefficients
+    for the sake of simplicity) we can compute the temperature as
+    T = 2.0 * avg K / dimensions.
+
+    Args:
+        velocities: Array of velocities for each particle in each dimension.
+
+    Returns:
+        Average temperature of the system.
+    """
+
+    kinetic_energy = 0.0
+
+    for i in range(len(velocities)):
+      kinetic_energy += 0.5 * np.dot(velocities[i], velocities[i])
+
+    average_kinectic_energy = kinetic_energy / len(velocities)
+    temperature = 2.0 * average_kinectic_energy / velocities.shape[1]
+
+    return temperature
+
+
 def lennard_jones_potential(
         distance: float,
         epsilon: float,
@@ -179,15 +225,51 @@ if __name__ == "__main__":
     # Argument parsing ---------------------------------------------------------
 
     PARSER = argparse.ArgumentParser(description="Advection equation solver")
-    PARSER.add_argument("--n", type=int, default=16, help="Number of particles")
-    PARSER.add_argument("--dt", type=float, default=0.001, help="dt")
-    PARSER.add_argument("--t", type=float, default=1.0, help="Simulation time")
-    PARSER.add_argument("--width", type=float, default=4.0, help="Box width")
-    PARSER.add_argument("--height", type=float, default=4.0, help="Box height")
-    PARSER.add_argument("--cutoff", type=float, default=8.0, help="Lennard-Jones 14/8 cutoff range.")
-    PARSER.add_argument("--epsilon", type=float, default=1.0, help="Lennard-Jones 14/8 energy minimum.")
-    PARSER.add_argument("--sigma", type=float, default=1.0, help="Lennard-Jones 14/8 distance to zero-crossing point.")
-    PARSER.add_argument("--max_vel", type=float, default=4.0, help="Maximum velocity")
+    PARSER.add_argument(
+        "--n",
+        type=int,
+        default=16,
+        help="Number of particles")
+    PARSER.add_argument(
+        "--dt",
+        type=float,
+        default=0.001,
+        help="Time step size")
+    PARSER.add_argument(
+        "--t",
+        type=float,
+        default=1.0,
+        help="Simulation time")
+    PARSER.add_argument(
+        "--width",
+        type=float,
+        default=4.0,
+        help="Box width")
+    PARSER.add_argument(
+        "--height",
+        type=float,
+        default=4.0,
+        help="Box height")
+    PARSER.add_argument(
+        "--cutoff",
+        type=float,
+        default=8.0,
+        help="Lennard-Jones 14/8 cutoff range.")
+    PARSER.add_argument(
+        "--epsilon",
+        type=float,
+        default=1.0,
+        help="Lennard-Jones 14/8 energy minimum.")
+    PARSER.add_argument(
+        "--sigma",
+        type=float,
+        default=1.0,
+        help="Lennard-Jones 14/8 distance to zero-crossing point.")
+    PARSER.add_argument(
+        "--max_vel",
+        type=float,
+        default=4.0,
+        help="Maximum velocity")
     ARGS = PARSER.parse_args()
 
     N = ARGS.n
@@ -205,12 +287,19 @@ if __name__ == "__main__":
     velocity = np.zeros((N, 2))
     acceleration = np.zeros((N, 2))
 
-    # Randomize initial positions.
-    position[:, 0] = np.random.uniform(low=0.0, high=BOUNDARIES[0], size=N)
-    position[:, 1] = np.random.uniform(low=0.0, high=BOUNDARIES[1], size=N)
-
-    x_positions = np.linspace(0.25, BOUNDARIES[0] - 0.25, int(np.sqrt(N)), endpoint=True)
-    y_positions = np.linspace(0.25, BOUNDARIES[1] - 0.25, int(np.sqrt(N)), endpoint=True)
+    # Set up initial positions in a grid.
+    x_positions = np.linspace(
+        0.25,
+        BOUNDARIES[0] - 0.25,
+        int(np.sqrt(N)),
+        endpoint=True
+    )
+    y_positions = np.linspace(
+        0.25,
+        BOUNDARIES[1] - 0.25,
+        int(np.sqrt(N)),
+        endpoint=True
+    )
 
     x, y = np.meshgrid(x_positions, y_positions)
     position[:, 0] = x.flatten()
@@ -223,13 +312,15 @@ if __name__ == "__main__":
 
     TIME_STEPS = int(T / DT)
 
+    timestamps = np.zeros(TIME_STEPS)
     positions = np.zeros((TIME_STEPS, N, 2))
     velocities = np.zeros((TIME_STEPS, N, 2))
     accelerations = np.zeros((TIME_STEPS, N, 2))
+    temperatures = np.zeros(TIME_STEPS)
 
     for i in range(TIME_STEPS):
 
-        #LOG.info("Time step: %d", i)
+        timestamps[i] = i * DT
 
         # TODO: This might be optimizable.
         # Save current time step values for later plotting.
@@ -281,6 +372,9 @@ if __name__ == "__main__":
 
         velocity = np.clip(velocity, -MAX_VELOCITY, MAX_VELOCITY)
 
+        # Compute temperature of the system.
+        temperatures[i] = compute_temperature(velocity)
+
     # Plotting -----------------------------------------------------------------
 
     # Set LaTeX font and appropriate sizes.
@@ -297,12 +391,19 @@ if __name__ == "__main__":
     # Create figure and arrange axes.
     fig = plt.figure()
 
-    ax1 = fig.add_subplot(111)
+    ax1 = fig.add_subplot(121)
     ax1.set_xlim([0.0 - 0.5, BOUNDARIES[0] + 0.5])
     ax1.set_ylim([0.0 - 0.5, BOUNDARIES[1] + 0.5])
     ax1.set_title("Particles")
     ax1.set_ylabel(r"$y$")
     ax1.set_xlabel(r"$x$")
+
+    ax2 = fig.add_subplot(122)
+    ax2.set_title("Temperature Evolution")
+    ax2.set_xlim([0.0, T])
+    ax2.set_ylim([0.0, np.max(temperatures)])
+    ax2.set_ylabel(r"Temperature $[K]$")
+    ax2.set_xlabel(r"Time $[s]$")
 
     # Particle plot.
     sc1 = ax1.scatter([], [])
@@ -328,12 +429,21 @@ if __name__ == "__main__":
 
         velocity_quivers.append(quiver)
 
+    # Plot temperature evolution.
+    sc2, = ax2.plot([], [])
+
     # Animation ----------------------------------------------------------------
 
     def animate(step):
         """ Function for the matplotlib anim. routine to update the plots. """
 
-        fig.suptitle("Time step = " + str(step))
+        fig.suptitle(
+            "Time step = "
+            + str(step)
+            + "("
+            + str(timestamps[step])
+            + " $[s]$)"
+        )
 
         # Update positions.
         sc1.set_offsets(positions[step, :])
@@ -346,7 +456,15 @@ if __name__ == "__main__":
                 velocities[step, i, 1]
             )
 
-    anim = animation.FuncAnimation(fig, animate, frames=TIME_STEPS, repeat=False)
+        # Update temperature evolution.
+        sc2.set_data([timestamps[:step], temperatures[:step]])
+
+    anim = animation.FuncAnimation(
+        fig,
+        animate,
+        frames=TIME_STEPS,
+        repeat=False
+    )
     plt.show()
 
     # Write video output of the animation --------------------------------------

@@ -14,6 +14,9 @@
     The simulation is carried out with periodic boundaries and forces which are
     computed by placing pseudo-particles in such boundaries.
 
+    Furthermore, you can set a maximum for the temperature of the system which
+    is somewhat achieved through a thermostat.
+
     Running the code:
 
         python3 molecular_dynamics.py --h
@@ -270,6 +273,11 @@ if __name__ == "__main__":
         type=float,
         default=4.0,
         help="Maximum velocity")
+    PARSER.add_argument(
+        "--max_temperature",
+        type=float,
+        default=8.0,
+        help="Maximum temperature")
     ARGS = PARSER.parse_args()
 
     N = ARGS.n
@@ -280,6 +288,7 @@ if __name__ == "__main__":
     LJ_EPSILON = ARGS.epsilon
     LJ_SIGMA = ARGS.sigma
     MAX_VELOCITY = ARGS.max_vel
+    MAX_TEMPERATURE = ARGS.max_temperature
 
     # Initialize arrays --------------------------------------------------------
 
@@ -346,8 +355,15 @@ if __name__ == "__main__":
               position,
               BOUNDARIES,
               CUTOFF)
-
         position = np.concatenate((position, pseudo_particles), axis=0)
+
+        # Compute temperature of the system.
+        temperatures[i] = compute_temperature(velocity)
+
+        # Rescale velocity to temperature limit and take half step.
+        chi = np.sqrt(MAX_TEMPERATURE / temperatures[i])
+        for p in range(N):
+          velocity[p] = chi * velocity[p] + 0.5 * DT * acceleration[p]
 
         # Compute accelerations of the current time step.
         for p in range(N):
@@ -364,15 +380,18 @@ if __name__ == "__main__":
         # Remove pseudo-particles.
         position = position[:N]
 
-        # Compute velocities of the current time step.
+        # Complete velocity calculation for another half time step.
         for p in range(N):
+            velocity[p] = velocity[p] + 0.5 * DT * acceleration[p]
 
-            velocity[p] = (velocities[i, p]
-                           + (accelerations[i, p] + acceleration[p]) * 0.5 * DT)
+            # Old velocity calculation.
+            #velocity[p] = (velocities[i, p]
+            #               + (accelerations[i, p] + acceleration[p]) * 0.5 * DT)
 
+        # Keep velocities within the assumed limits.
         velocity = np.clip(velocity, -MAX_VELOCITY, MAX_VELOCITY)
 
-        # Compute temperature of the system.
+        # Compute final temperature of the system at the current time step.
         temperatures[i] = compute_temperature(velocity)
 
     # Plotting -----------------------------------------------------------------
@@ -401,7 +420,7 @@ if __name__ == "__main__":
     ax2 = fig.add_subplot(122)
     ax2.set_title("Temperature Evolution")
     ax2.set_xlim([0.0, T])
-    ax2.set_ylim([0.0, np.max(temperatures)])
+    ax2.set_ylim([0.0, np.max(temperatures) + np.max(temperatures) * 0.1])
     ax2.set_ylabel(r"Temperature $[K]$")
     ax2.set_xlabel(r"Time $[s]$")
 
@@ -431,6 +450,9 @@ if __name__ == "__main__":
 
     # Plot temperature evolution.
     sc2, = ax2.plot([], [])
+
+    # Plot maximum temperature.
+    ax2.axhline(MAX_TEMPERATURE, color='r')
 
     # Animation ----------------------------------------------------------------
 

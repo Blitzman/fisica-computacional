@@ -259,13 +259,37 @@ if __name__ == "__main__":
                      ec='black', lw=2, fc='none')
     ax1.add_patch(rect)
 
+    # Plot velocity quivers.
+    velocity_quivers = []
+    for i in range(N):
+        quiver = ax1.quiver(
+            positions[0, i, 0],
+            positions[0, i, 1],
+            velocities[0, i, 0],
+            velocities[0, i, 1],
+            color='r',
+            units="width",
+            width=0.0025)
+
+        velocity_quivers.append(quiver)
+
     # Animation ----------------------------------------------------------------
 
     def animate(step):
         """ Function for the matplotlib anim. routine to update the plots. """
 
         fig.suptitle("Time step = " + str(step))
+
+        # Update positions.
         sc1.set_offsets(positions[step, :])
+
+        # Update velocities.
+        for i in range(N):
+            velocity_quivers[i].set_offsets(positions[step, i, :])
+            velocity_quivers[i].set_UVC(
+                velocities[step, i, 0],
+                velocities[step, i, 1]
+            )
 
     anim = animation.FuncAnimation(fig, animate, frames=TIME_STEPS, repeat=False)
     plt.show()

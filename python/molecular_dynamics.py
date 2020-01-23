@@ -6,6 +6,7 @@
 """
 
 import argparse
+import itertools
 import logging
 import sys
 
@@ -66,11 +67,62 @@ def generate_boundary_pseudo_particles(
     num_particles = len(particle_positions)
     return np.zeros_like(particle_positions)
 
-def compute_force(
-        distance: np.array
+def lennard_jones_potential(
+        distance: float,
+        epsilon: float,
+        sigma: float,
+        cutoff: float,
+) -> float:
+    """ Computes the 12/6 Lennard-Jones potential over a distance.
+
+    Args:
+        distance: Radial distance to which compute the potential.
+        epsilon: Energy minimum.
+        sigma: Distance to zero crossing point.
+        cutoff: Maximum range of the potential.
+
+    Returns:
+        The 12/6 LJ potential for such distance.
+    """
+
+    lj_12_6_potential = 4.0 * epsilon * ((sigma / distance)**12 
+                                     - (sigma / distance)**6)
+
+    return lj_12_6_potential
+
+def compute_forces(
+        distances: np.array,
+        epsilon: float,
+        sigma: float,
+        cutoff: float,
 ) -> np.array:
 
-    return -24.0 * distance * ((distance.dot(distance) ** 3 - 2)) / (distance.dot(distance) ** 7)
+    """ Computes the forces over a distance using the Lennard-Jones 14/8 pot.
+
+    Args:
+        distance: Array of per-axis radial distances.
+        epsilon: Energy minimum.
+        sigma: Distance to zero crossing point.
+        cutoff: Maximum range of the potential.
+
+    Returns:
+        An array with per-axis forces using the LJ14/8 potential.
+    """
+
+    distance = np.sqrt(distances.dot(distances))
+
+    forces = np.zeros_like(distances)
+
+    if distance < cutoff and distance > 0:
+
+        f_lennard_jones_14_8_2 = sigma**2 / distance
+        f_lennard_jones_14_8_6 = f_lennard_jones_14_8_2**3
+        f_lennard_jones_14_8 = (48.0 * epsilon * f_lennard_jones_14_8_6
+                                * (f_lennard_jones_14_8_6 - 0.5) / distance)
+
+        forces = distances * f_lennard_jones_14_8
+
+    return forces
 
 
 # ##############################################################################
@@ -84,19 +136,23 @@ if __name__ == "__main__":
     # Argument parsing ---------------------------------------------------------
 
     PARSER = argparse.ArgumentParser(description="Advection equation solver")
-    PARSER.add_argument("--n", type=int, default=4, help="Number of particles")
+    PARSER.add_argument("--n", type=int, default=16, help="Number of particles")
     PARSER.add_argument("--dt", type=float, default=0.001, help="dt")
     PARSER.add_argument("--t", type=float, default=1.0, help="Simulation time")
     PARSER.add_argument("--width", type=float, default=4.0, help="Box width")
     PARSER.add_argument("--height", type=float, default=4.0, help="Box height")
-    PARSER.add_argument("--range", type=float, default=3.0, help="Pot. range")
+    PARSER.add_argument("--cutoff", type=float, default=8.0, help="Lennard-Jones 14/8 cutoff range.")
+    PARSER.add_argument("--epsilon", type=float, default=1.0, help="Lennard-Jones 14/8 energy minimum.")
+    PARSER.add_argument("--sigma", type=float, default=1.0, help="Lennard-Jones 14/8 distance to zero-crossing point.")
     ARGS = PARSER.parse_args()
 
     N = ARGS.n
     DT = ARGS.dt
     T = ARGS.t
     BOUNDARIES = [ARGS.width, ARGS.height]
-    POTENTIAL_RANGE = ARGS.range
+    CUTOFF = ARGS.cutoff
+    LJ_EPSILON = ARGS.epsilon
+    LJ_SIGMA = ARGS.sigma
 
     # Initialize arrays --------------------------------------------------------
 
@@ -107,10 +163,16 @@ if __name__ == "__main__":
     # Randomize initial positions.
     position[:, 0] = np.random.uniform(low=0.0, high=BOUNDARIES[0], size=N)
     position[:, 1] = np.random.uniform(low=0.0, high=BOUNDARIES[1], size=N)
-    LOG.info(position)
+
+    x_positions = np.linspace(0.0, BOUNDARIES[0], int(np.sqrt(N)), endpoint=True)
+    y_positions = np.linspace(0.0, BOUNDARIES[1], int(np.sqrt(N)), endpoint=True)
+
+    x, y = np.meshgrid(x_positions, y_positions)
+    position[:, 0] = x.flatten()
+    position[:, 1] = y.flatten()
 
     # Randomize initial velocities.
-    velocity = np.random.uniform(low=0, high=0, size=(N, 2))
+    velocity = np.random.uniform(low=-10.0, high=10.0, size=(N, 2))
     LOG.info(velocity)
 
     # Simulation ---------------------------------------------------------------
@@ -123,7 +185,7 @@ if __name__ == "__main__":
 
     for i in range(TIME_STEPS):
 
-        LOG.info("Time step: %d", i)
+        #LOG.info("Time step: %d", i)
 
         # TODO: This might be optimizable.
         # Save current time step values for later plotting.
@@ -138,8 +200,8 @@ if __name__ == "__main__":
         for p in range(N):
 
             position[p] = (positions[i, p]
-                          + velocities[i, p] * DT
-                          + accelerations[i, p] * 0.5 * DT ** 2)
+                          + velocities[i, p] * DT)
+                          #+ accelerations[i, p] * 0.5 * DT ** 2)
 
             # Check periodic boundaries.
             position[p] = get_inside_periodic_boundary(position[p], BOUNDARIES)
@@ -152,14 +214,9 @@ if __name__ == "__main__":
 
             for j in range(N):
 
-                distance = current_position - position[j]
-                distance_sqr = np.sqrt(distance.dot(distance))
-
-                if (distance_sqr < POTENTIAL_RANGE
-                    and distance[0] != 0.0
-                    and distance[1] != 0.0):
-
-                    acceleration[p] += compute_force(distance)
+                distances = current_position - position[j]
+                acceleration[p] += compute_forces(
+                    distances, LJ_EPSILON, LJ_SIGMA, CUTOFF)
 
         # Compute velocities of the current time step.
         for p in range(N):
@@ -186,14 +243,21 @@ if __name__ == "__main__":
     fig = plt.figure()
 
     ax1 = fig.add_subplot(111)
-    ax1.set_xlim([0.0, BOUNDARIES[0]])
-    ax1.set_ylim([0.0, BOUNDARIES[1]])
+    ax1.set_xlim([0.0 - 0.5, BOUNDARIES[0] + 0.5])
+    ax1.set_ylim([0.0 - 0.5, BOUNDARIES[1] + 0.5])
     ax1.set_title("Particles")
     ax1.set_ylabel(r"$y$")
     ax1.set_xlabel(r"$x$")
 
     # Particle plot.
     sc1 = ax1.scatter([], [])
+
+    # Plot boundaries.
+    rect = plt.Rectangle((0, 0),
+                     BOUNDARIES[0],
+                     BOUNDARIES[1],
+                     ec='black', lw=2, fc='none')
+    ax1.add_patch(rect)
 
     # Animation ----------------------------------------------------------------
 

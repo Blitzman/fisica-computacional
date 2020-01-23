@@ -144,6 +144,7 @@ if __name__ == "__main__":
     PARSER.add_argument("--cutoff", type=float, default=8.0, help="Lennard-Jones 14/8 cutoff range.")
     PARSER.add_argument("--epsilon", type=float, default=1.0, help="Lennard-Jones 14/8 energy minimum.")
     PARSER.add_argument("--sigma", type=float, default=1.0, help="Lennard-Jones 14/8 distance to zero-crossing point.")
+    PARSER.add_argument("--max_vel", type=float, default=4.0, help="Maximum velocity")
     ARGS = PARSER.parse_args()
 
     N = ARGS.n
@@ -153,6 +154,7 @@ if __name__ == "__main__":
     CUTOFF = ARGS.cutoff
     LJ_EPSILON = ARGS.epsilon
     LJ_SIGMA = ARGS.sigma
+    MAX_VELOCITY = ARGS.max_vel
 
     # Initialize arrays --------------------------------------------------------
 
@@ -164,8 +166,8 @@ if __name__ == "__main__":
     position[:, 0] = np.random.uniform(low=0.0, high=BOUNDARIES[0], size=N)
     position[:, 1] = np.random.uniform(low=0.0, high=BOUNDARIES[1], size=N)
 
-    x_positions = np.linspace(0.0, BOUNDARIES[0], int(np.sqrt(N)), endpoint=True)
-    y_positions = np.linspace(0.0, BOUNDARIES[1], int(np.sqrt(N)), endpoint=True)
+    x_positions = np.linspace(0.25, BOUNDARIES[0] - 0.25, int(np.sqrt(N)), endpoint=True)
+    y_positions = np.linspace(0.25, BOUNDARIES[1] - 0.25, int(np.sqrt(N)), endpoint=True)
 
     x, y = np.meshgrid(x_positions, y_positions)
     position[:, 0] = x.flatten()
@@ -173,7 +175,6 @@ if __name__ == "__main__":
 
     # Randomize initial velocities.
     velocity = np.random.uniform(low=-10.0, high=10.0, size=(N, 2))
-    LOG.info(velocity)
 
     # Simulation ---------------------------------------------------------------
 
@@ -200,8 +201,8 @@ if __name__ == "__main__":
         for p in range(N):
 
             position[p] = (positions[i, p]
-                          + velocities[i, p] * DT)
-                          #+ accelerations[i, p] * 0.5 * DT ** 2)
+                          + velocities[i, p] * DT
+                          + accelerations[i, p] * 0.5 * DT ** 2)
 
             # Check periodic boundaries.
             position[p] = get_inside_periodic_boundary(position[p], BOUNDARIES)
@@ -224,9 +225,10 @@ if __name__ == "__main__":
             velocity[p] = (velocities[i, p]
                            + (accelerations[i, p] + acceleration[p]) * 0.5 * DT)
 
-    # Plotting -----------------------------------------------------------------
+        
+        velocity = np.clip(velocity, -MAX_VELOCITY, MAX_VELOCITY)
 
-    # Plot integration ---------------------------------------------------------
+    # Plotting -----------------------------------------------------------------
 
     # Set LaTeX font and appropriate sizes.
     #matplotlib.rc('font', **{'family': 'serif', 'serif': ['Computer Modern']})
@@ -293,3 +295,9 @@ if __name__ == "__main__":
 
     anim = animation.FuncAnimation(fig, animate, frames=TIME_STEPS, repeat=False)
     plt.show()
+
+    # Write video output of the animation --------------------------------------
+
+    writer = animation.writers['ffmpeg']
+    writer = writer(fps=15, metadata=dict(artist="Albert Garcia"), bitrate=1800)
+    anim.save("md.mp4", writer=writer)

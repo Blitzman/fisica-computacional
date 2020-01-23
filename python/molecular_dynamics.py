@@ -47,7 +47,7 @@ def get_inside_periodic_boundary(
 def generate_boundary_pseudo_particles(
         particle_positions: np.array,
         boundaries: np.array,
-        pseudo_range: float = 3.0,
+        cutoff: float,
 ) -> np.array:
     """ Generates boundary pseudo-particles.
 
@@ -57,7 +57,7 @@ def generate_boundary_pseudo_particles(
     Args:
         particle_positions: Array of particle positions in n-dimensional space.
         boundaries: The boundaries in n-dimensional space.
-        range: TODO.
+        cutoff: Potential cutoff range.
 
     Returns:
         An array containing the original particle positions in n-dimensional
@@ -65,7 +65,50 @@ def generate_boundary_pseudo_particles(
     """
 
     num_particles = len(particle_positions)
-    return np.zeros_like(particle_positions)
+    pseudo_particles = []
+
+    for i in range(num_particles):
+
+        particle_x = particle_positions[i, 0]
+        particle_y = particle_positions[i, 1]
+
+        # Top boundary.
+        if (boundaries[1] >= particle_y >= (boundaries[1] - cutoff)):
+            pseudo_particles.append(
+                [
+                    particle_x,
+                    particle_y - boundaries[1]
+                ]
+            )
+
+        # Right boundary.
+        if (boundaries[0] >= particle_x >= (boundaries[0] - cutoff)):
+            pseudo_particles.append(
+                [
+                    particle_x - boundaries[0],
+                    particle_y
+                ]
+            )
+
+        # Bottom boundary.
+        if (cutoff >= particle_y >= 0):
+            pseudo_particles.append(
+                [
+                    particle_x,
+                    particle_y + boundaries[1]
+                ]
+            )
+
+        # Left boundary.
+        if (cutoff >= particle_x >= 0):
+            pseudo_particles.append(
+                [
+                    particle_x + boundaries[0],
+                    particle_y
+                ]
+            )
+
+    return np.array(pseudo_particles)
 
 def lennard_jones_potential(
         distance: float,
@@ -207,17 +250,28 @@ if __name__ == "__main__":
             # Check periodic boundaries.
             position[p] = get_inside_periodic_boundary(position[p], BOUNDARIES)
 
+        # Add pseudo-particles on each boundary to generate periodic forces.
+        pseudo_particles = generate_boundary_pseudo_particles(
+              position,
+              BOUNDARIES,
+              CUTOFF)
+
+        position = np.concatenate((position, pseudo_particles), axis=0)
+
         # Compute accelerations of the current time step.
         for p in range(N):
 
             acceleration[p] = 0.0
             current_position = position[p]
 
-            for j in range(N):
+            for j in range(len(position)):
 
                 distances = current_position - position[j]
                 acceleration[p] += compute_forces(
                     distances, LJ_EPSILON, LJ_SIGMA, CUTOFF)
+
+        # Remove pseudo-particles.
+        position = position[:N]
 
         # Compute velocities of the current time step.
         for p in range(N):
@@ -225,7 +279,6 @@ if __name__ == "__main__":
             velocity[p] = (velocities[i, p]
                            + (accelerations[i, p] + acceleration[p]) * 0.5 * DT)
 
-        
         velocity = np.clip(velocity, -MAX_VELOCITY, MAX_VELOCITY)
 
     # Plotting -----------------------------------------------------------------

@@ -19,9 +19,11 @@
 
     Running the code:
 
-        python3 molecular_dynamics.py --h
+        python3 5_molecular_dynamics.py --h
 
         To obtain help about the different parameters that can be customized.
+
+    Author: Alberto Garcia Garcia (albert.garcia.ua@gmail.com)
 
 """
 
@@ -397,8 +399,8 @@ if __name__ == "__main__":
     # Plotting -----------------------------------------------------------------
 
     # Set LaTeX font and appropriate sizes.
-    #matplotlib.rc('font', **{'family': 'serif', 'serif': ['Computer Modern']})
-    #matplotlib.rc('text', usetex=True)
+    matplotlib.rc('font', **{'family': 'serif', 'serif': ['Computer Modern']})
+    matplotlib.rc('text', usetex=True)
     plt.rc('font', size=24) # Controls default text sizes.
     plt.rc('axes', titlesize=32) # Fontsize of the axes title.
     plt.rc('axes', labelsize=24) # Fontsize of the x and y labels.
@@ -413,16 +415,16 @@ if __name__ == "__main__":
     ax1 = fig.add_subplot(121)
     ax1.set_xlim([0.0 - 0.5, BOUNDARIES[0] + 0.5])
     ax1.set_ylim([0.0 - 0.5, BOUNDARIES[1] + 0.5])
-    ax1.set_title("Particles")
-    ax1.set_ylabel(r"$y$")
-    ax1.set_xlabel(r"$x$")
+    ax1.set_title("Particles", pad=16)
+    ax1.set_ylabel(r"$y$", labelpad=16)
+    ax1.set_xlabel(r"$x$", labelpad=16)
 
     ax2 = fig.add_subplot(122)
-    ax2.set_title("Temperature Evolution")
+    ax2.set_title("Temperature Evolution", pad=16)
     ax2.set_xlim([0.0, T])
     ax2.set_ylim([0.0, np.max(temperatures) + np.max(temperatures) * 0.1])
-    ax2.set_ylabel(r"Temperature $[K]$")
-    ax2.set_xlabel(r"Time $[s]$")
+    ax2.set_ylabel(r"Temperature $[K]$", labelpad=16)
+    ax2.set_xlabel(r"Time $[s]$", labelpad=16)
 
     # Particle plot.
     sc1 = ax1.scatter([], [])
@@ -463,7 +465,7 @@ if __name__ == "__main__":
             "Time step = "
             + str(step)
             + "("
-            + str(timestamps[step])
+            + "{:.2E}".format(timestamps[step])
             + " $[s]$)"
         )
 

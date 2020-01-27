@@ -21,14 +21,12 @@ LOG = logging.getLogger(__name__)
 
 def generate_potential_barrier(
         points: int,
-        thickness: int,
+        range: list,
         amplitude: float
 ) -> np.array:
 
     _potential = np.zeros(points)
-    _START = int(points / 2)
-    _END = int(points / 2 + thickness)
-    _potential[_START:_END] = amplitude
+    _potential[range[0]:range[1]] = amplitude
     return _potential
 
 def generate_gaussian(
@@ -53,17 +51,17 @@ if __name__ == "__main__":
     PARSER.add_argument(
         "--n",
         type=int,
-        default=1200,
+        default=1024,
         help="Number of spatial points")
     PARSER.add_argument(
         "--dt",
         type=float,
-        default=0.001,
+        default=0.1,
         help="Time step size")
     PARSER.add_argument(
         "--t",
         type=float,
-        default=48.0,
+        default=4096.0,
         help="Total time")
     PARSER.add_argument(
         "--dx",
@@ -78,43 +76,62 @@ if __name__ == "__main__":
     PARSER.add_argument(
         "--gaussian_sigma",
         type=float,
-        default=40.0,
+        default=32.0,
         help="Gaussian sigma for starting wave function.")
+    PARSER.add_argument(
+        "--snapshot",
+        type=int,
+        default=64,
+        help="Snapshot frequency"
+    )
+    PARSER.add_argument(
+        "--v",
+        type=float,
+        default=1e-2,
+        help="Potential amplitude"
+    )
+    PARSER.add_argument(
+        "--v_range",
+        nargs='+',
+        type=int,
+        default=[512, 544],
+        help="Potential range"
+    )
     ARGS = PARSER.parse_args()
 
     N = ARGS.n
-    #T = ARGS.t
-    #DT = ARGS.dt
+    T = ARGS.t
+    DT = ARGS.dt
     DX = ARGS.dx
     MASS = ARGS.mass
     GAUSSIAN_SIGMA = ARGS.gaussian_sigma
+    SNAPSHOT_FREQUENCY = ARGS.snapshot
+    POTENTIAL_AMPLITUDE = ARGS.v
+    POTENTIAL_RANGE = ARGS.v_range
 
     # Other constants ----------------------------------------------------------
 
     # Number of timesteps.
-    TIME_STEPS = 5 * N
+    TIME_STEPS = int(T / DT)
+    # Number of snapshots.
+    SNAPSHOTS = int(TIME_STEPS / SNAPSHOT_FREQUENCY)
     # Planck's constant.
-    H = 1.0e0
-    # Amplitude of the potential barrier.
-    POTENTIAL_AMPLITUDE = 1.0e-2
-    # Thicnkess of the potential barrier.
-    POTENTIAL_THICKNESS = 15
+    # H = 6.626e-34
+    H = 1.0 # Assume unit to accelerate simulation.
     # Spatial grid of points.
     X = np.linspace(0.0, N, N) * DX
     # Potential barrier.
     POTENTIAL = generate_potential_barrier(
         N,
-        POTENTIAL_THICKNESS,
+        POTENTIAL_RANGE,
         POTENTIAL_AMPLITUDE
     )
-    # Critical time step size.
-    DT = H / (2.0 * H**2 / (MASS * DX**2) + POTENTIAL.max())
     # Initial wave funtion.
     INITIAL_RANGE = range(1, int(N / 2))
     X_INITIAL = X[INITIAL_RANGE] / DX
 
     X0 = round(N / 2.0) - 5.0 * GAUSSIAN_SIGMA
-    K0 = np.pi / 20.0
+    K0 = np.pi / 16.0
 
     GAUSSIAN = generate_gaussian(
         X_INITIAL,
@@ -123,11 +140,12 @@ if __name__ == "__main__":
     )
     INITIAL_COSINE = np.cos(K0 * X_INITIAL)
     INITIAL_SINE = np.sin(K0 * X_INITIAL)
-    # Energy of the wave.
-    WAVE_ENERGY = (H**2 / 2.0 / MASS) * (K0**2 + 0.5 / GAUSSIAN_SIGMA**2)
 
     # Initialization of wave function ------------------------------------------
 
+    # Arrays for storing the real, imaginary and probability values for the wave
+    # note that the real and imaginary arrays have three dimensions to store the
+    # past, current, and future values (n-1, n, n+1 respectively).
     _psi_real = np.zeros((N, 3))
     _psi_imaginary = np.zeros((N, 3))
     _psi_probability = np.zeros(N)
@@ -151,9 +169,9 @@ if __name__ == "__main__":
 
     # Solve it! ----------------------------------------------------------------
 
-    _psi_reals = np.zeros((TIME_STEPS, N))
-    _psi_imaginaries = np.zeros((TIME_STEPS, N))
-    _psi_probabilities = np.zeros((TIME_STEPS, N))
+    _psi_reals = np.zeros((SNAPSHOTS+1, N))
+    _psi_imaginaries = np.zeros((SNAPSHOTS+1, N))
+    _psi_probabilities = np.zeros((SNAPSHOTS+1, N))
 
     # Precompute indices for k+1 accesses.
     _PREVIOUS_INDICES = range(0, N-2)
@@ -168,12 +186,24 @@ if __name__ == "__main__":
 
     for t in range(TIME_STEPS):
 
-        #LOG.info("Timestep {}/{}".format(i, TIME_STEPS))
+        # Log current values for later visualization.
+
+        if (t % SNAPSHOT_FREQUENCY == 0):
+
+            _snapshot = int(t / SNAPSHOT_FREQUENCY)
+
+            LOG.info("Timestep {}/{}".format(t, TIME_STEPS))
+            _psi_reals[_snapshot] = _psi_real[:, 1]
+            _psi_imaginaries[_snapshot] = _psi_imaginary[:, 1]
+            _psi_probabilities[_snapshot] = (_psi_imaginary[:, 1]**2
+                                             + _psi_real[:, 1]**2)
+
+        # Pre-fetch some recurrent values for efficiency.
 
         _psi_real_present = _psi_real[:, 1]
         _psi_imaginary_present = _psi_imaginary[:, 1]
 
-        # Update equations FTCS.
+        # Update equations FTCS/FDTD.
 
         _psi_imaginary[_CURRENT_INDICES, 2] = (
             _psi_imaginary[_CURRENT_INDICES, 0]
@@ -204,17 +234,11 @@ if __name__ == "__main__":
         _psi_imaginary[:, 0] = _psi_imaginary[:, 1]
         _psi_imaginary[:, 1] = _psi_imaginary[:, 2]
 
-        # Log current values for later visualization.
-
-        _psi_reals[t] = _psi_real[:, 1]
-        _psi_imaginaries[t] = _psi_imaginary[:, 1]
-        _psi_probabilities[t] = _psi_imaginary[:, 1]**2 + _psi_real[:, 1]**2
-
     # Plotting -----------------------------------------------------------------
 
     # Set LaTeX font and appropriate sizes.
-    #matplotlib.rc('font', **{'family': 'serif', 'serif': ['Computer Modern']})
-    #matplotlib.rc('text', usetex=True)
+    matplotlib.rc('font', **{'family': 'serif', 'serif': ['Computer Modern']})
+    matplotlib.rc('text', usetex=True)
     plt.rc('font', size=24) # Controls default text sizes.
     plt.rc('axes', titlesize=32) # Fontsize of the axes title.
     plt.rc('axes', labelsize=24) # Fontsize of the x and y labels.
@@ -224,30 +248,49 @@ if __name__ == "__main__":
     plt.rc('figure', titlesize=32) # Fontsize of the figure title.
 
     # Create figure and arrange axes.
-    fig = plt.figure()
+    fig = plt.figure(figsize=(32, 16))
 
     ax1 = fig.add_subplot(111)
     ax1.set_xlim([X.min(), X.max()])
     ax1.set_ylim([-_psi_reals.max() * 1.25, _psi_reals.max() * 1.25])
-    ax1.set_title("Schrodinger", pad=16)
+    ax1.set_title("Schrodinger solver with potential barrier", pad=16)
     ax1.set_ylabel(r"$y$", labelpad=16)
     ax1.set_xlabel(r"$x$", labelpad=16)
 
-    _line_real, = ax1.plot(X, _psi_reals[0], 'red', label="Real")
-    _line_imaginary, = ax1.plot(X, _psi_imaginaries[0], 'blue', label="Imaginary")
-    _line_probabilities, = ax1.plot(X, _psi_probabilities[0], 'black', label="Probability")
-
-    _wave_energy_factor = _psi_reals.max() * 0.5
-    if POTENTIAL.max() > 0.0:
-        _wave_energy_factor /= POTENTIAL.max()
-
-    ax1.axhline(
-        WAVE_ENERGY * _wave_energy_factor,
-        color="green",
-        label="Wave Energy"
+    _line_real, = ax1.plot(
+        X,
+        _psi_reals[0],
+        "red",
+        label="Real"
+    )
+    _line_imaginary, = ax1.plot(
+        X,
+        _psi_imaginaries[0],
+        "blue",
+        label="Imaginary"
+    )
+    _line_probabilities, = ax1.plot(
+        X,
+        _psi_probabilities[0],
+        "black",
+        label="Probability"
     )
 
     ax1.legend(loc="lower left")
+
+    ax2 = ax1.twinx()
+    ax2.set_ylabel(r"V", labelpad=16)
+    ax2.fill(
+        [
+            POTENTIAL_RANGE[0],
+            POTENTIAL_RANGE[0],
+            POTENTIAL_RANGE[1],
+            POTENTIAL_RANGE[1]
+        ],
+        [0.0, POTENTIAL_AMPLITUDE, POTENTIAL_AMPLITUDE, 0.0],
+        color="yellow",
+        alpha=0.25
+    )
 
     def animate(i):
         """ Function for the matplotlib anim. routine to update the plots. """
@@ -261,11 +304,24 @@ if __name__ == "__main__":
         _line_imaginary.set_ydata(_psi_imaginaries[i])
         _line_probabilities.set_ydata(6.0 * _psi_probabilities[i])
 
-    _FRAMES = TIME_STEPS
+    _FRAMES = SNAPSHOTS
     _ANIMATION = animation.FuncAnimation(
         fig,
         animate,
         frames=_FRAMES,
         repeat=False)
 
-    plt.show()
+    #plt.show()
+
+    # Write video output of the animation --------------------------------------
+
+    LOG.info("Generating video schrodinger.mp4...")
+
+    _writer = animation.writers['ffmpeg']
+    _writer = _writer(
+        fps=24,
+        metadata=dict(artist="Albert Garcia"),
+        bitrate=1800)
+    _ANIMATION.save("schrodinger.mp4", writer=_writer)
+
+    LOG.info("Video schrodinger.mp4 generated!")

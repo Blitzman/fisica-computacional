@@ -24,22 +24,22 @@ def initial_condition_stair_case(
 
     """ Initial condition as a stair case function. """
 
-    f = np.zeros_like(x)
+    _f = np.zeros_like(x)
     _X_RIGHT = 0.1
-    f[np.where(x <= _X_RIGHT)] = 1.0
-    return f
+    _f[np.where(x <= _X_RIGHT)] = 1.0
+    return _f
 
 def initial_condition_step(
         x: np.array
 ) -> np.array:
 
     """ Initial condition for a step function. """
-    f = np.zeros_like(x)
+    _f = np.zeros_like(x)
     _X_LEFT = 0.33
     _X_RIGHT = 0.66
-    f[np.where(x >= _X_LEFT * (np.max(x) - np.min(x)))] = 1.0
-    f[np.where(x >= _X_RIGHT * (np.max(x) - np.min(x)))] = 0.0
-    return f
+    _f[np.where(x >= _X_LEFT * (np.max(x) - np.min(x)))] = 1.0
+    _f[np.where(x >= _X_RIGHT * (np.max(x) - np.min(x)))] = 0.0
+    return _f
 
 def initial_condition_sin2(
         x: np.array
@@ -47,13 +47,13 @@ def initial_condition_sin2(
 
     """ Initial condition as the sin^2. """
 
-    f = np.zeros_like(x)
+    _f = np.zeros_like(x)
     _X_LEFT = 0.33
     _X_RIGHT = 0.66
-    f = np.where(
+    _f = np.where(
         (x > _X_LEFT) & (x < _X_RIGHT),
-        np.sin(np.pi * (x - _X_LEFT) / (_X_RIGHT - _X_LEFT))**4, f) 
-    return f
+        np.sin(np.pi * (x - _X_LEFT) / (_X_RIGHT - _X_LEFT))**4, _f) 
+    return _f
 
 INITIAL_CONDITIONS = [
     initial_condition_stair_case,
@@ -68,14 +68,14 @@ def ftcs(
         c: float
 ) -> np.array:
 
-    """ TODO: FTCS solver.
+    """ FTCS solver.
 
     Args:
-        u: TODO.
+        u: Solution vector.
         c: Courant number.
 
     Returns:
-        TODO.
+        The solution vector for the next time step.
     """
 
     u[1:-1] = (1-c)*u[1:-1] + c*u[:-2]
@@ -86,14 +86,14 @@ def lax_wendroff(
         c: float
 ) -> np.array:
 
-    """ TODO: Lax-Wendroff solver.
+    """ Lax-Wendroff solver.
 
     Args:
-        u: TODO.
+        u: Solution vector.
         c: Courant number.
 
     Returns:
-        TODO.
+        The solution vector for the next time step.
     """
 
     u[1:-1] = c/2.0*(1+c)*u[:-2] + (1-c**2)*u[1:-1] - c/2.0*(1-c)*u[2:]
@@ -104,14 +104,14 @@ def lax_friedrich(
         c: float
 ) -> np.array:
 
-    """ TODO: Lax-Friedrich solver.
+    """ Lax-Friedrich solver.
 
     Args:
-        u: TODO.
+        u: Solution vector.
         c: Courant number.
 
     Returns:
-        TODO.
+        The solution vector for the next time step.
     """
 
     u[1:-1] = (u[:-2] +u[2:])/2.0 -  c*(u[2:] - u[:-2])/2.0
@@ -159,55 +159,52 @@ if __name__ == "__main__":
     C = ARGS.c
     INITIAL_CONDITION = ARGS.i
 
-    LNWDT=2; FNT=15
-    plt.rcParams['lines.linewidth'] = LNWDT; plt.rcParams['font.size'] = FNT
-
     # Space and time discretization --------------------------------------------
 
     # Compute the discretization of space (x), its corresponding step size (dx),
     # the time step size based on the stability condition (dt), the number of
     # time steps (NT), and then the time discretization (time).
 
-    x = np.linspace(X_MIN, X_MAX, NX+1)
-    dx = float((X_MAX - X_MIN) / NX)
-    dt = C / A * dx
-    NT = int((T_MAX - T_MIN) / dt)
-    time = np.linspace(T_MIN, T_MAX, NT)
+    X = np.linspace(X_MIN, X_MAX, NX+1)
+    DX = float((X_MAX - X_MIN) / NX)
+    DT = C / A * DX
+    NT = int((T_MAX - T_MIN) / DT)
+    TIME = np.linspace(T_MIN, T_MAX, NT)
 
     # Solve the equation -------------------------------------------------------
 
     # Arrays to hold the solutions for each solver for each time and space step.
-    u_solutions = np.zeros((len(SOLVERS), len(time), len(x)))
-    u_analytical = np.zeros((len(time), len(x)))
+    _u_solutions = np.zeros((len(SOLVERS), len(TIME), len(X)))
+    _u_analytical = np.zeros((len(TIME), len(X)))
     # Select the initial condition function
-    initial_condition_function = INITIAL_CONDITIONS[INITIAL_CONDITION]
+    _initial_condition_function = INITIAL_CONDITIONS[INITIAL_CONDITION]
 
     # Solve using each solver of the list.
     for k, solver in enumerate(SOLVERS):
 
         # Define the initial condition.
-        u = initial_condition_function(x)
+        _u = _initial_condition_function(X)
         # Array for storing the solution for each timestep.
-        un = np.zeros((len(time), len(x)))
+        _un = np.zeros((len(TIME), len(X)))
 
-        for i, t in enumerate(time[1:]):
+        for i, t in enumerate(TIME[1:]):
 
             # Interplate at right boundary.
-            u_bc = scipy.interpolate.interp1d(x[-2:], u[-2:]) 
+            _u_bc = scipy.interpolate.interp1d(X[-2:], _u[-2:]) 
             # Calculate numerical solution of interior.
-            u[1:-1] = solver(u[:], C)
+            _u[1:-1] = solver(_u[:], C)
             # Interpolate along a characteristic to find the boundary value.
-            u[-1] = u_bc(x[-1] - A * dt)
+            _u[-1] = _u_bc(X[-1] - A * DT)
             # Store solution of the current timestep for later plotting.
-            un[i,:] = u[:]
+            _un[i,:] = _u[:]
 
         # Store solution of the current solver for all timesteps.
-        u_solutions[k, :, :] = un
+        _u_solutions[k, :, :] = _un
 
     # Solve for the analytical case.
-    u = initial_condition_function(x)
-    for i, t in enumerate(time[1:]):
-        u_analytical[i,:] = initial_condition_function(x - A * t)
+    _u = _initial_condition_function(X)
+    for i, t in enumerate(TIME[1:]):
+        _u_analytical[i,:] = _initial_condition_function(X - A * t)
 
     # Figure setup -------------------------------------------------------------
 
@@ -226,7 +223,7 @@ if __name__ == "__main__":
     fig = plt.figure()
     ax = fig.add_subplot()
     ax.set_xlim([X_MIN, X_MAX])
-    ax.set_ylim([np.min(un) - 0.25 * np.max(un), np.max(un) * 1.25])
+    ax.set_ylim([np.min(_un) - 0.25 * np.max(_un), np.max(_un) * 1.25])
 
     # Lists of plot lines for solvers and analytical solutions.
     lines = []
@@ -248,7 +245,8 @@ if __name__ == "__main__":
         bbox_to_anchor=(0.5, -0.05),
         fancybox=True,
         shadow=True,
-        ncol=5)
+        ncol=5
+    )
 
     # Animation ----------------------------------------------------------------
     
@@ -268,9 +266,9 @@ if __name__ == "__main__":
 
         for k, line in enumerate(lines):
             if (k == len(lines) - 1):
-                line.set_data(x, u_analytical[i,:])
+                line.set_data(X, _u_analytical[i,:])
             else:
-                line.set_data(x, u_solutions[k,i,:])
+                line.set_data(X, _u_solutions[k,i,:])
         return lines,
 
     anim = matplotlib.animation.FuncAnimation(

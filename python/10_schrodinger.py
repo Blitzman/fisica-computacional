@@ -3,6 +3,16 @@
 
 """ Schrodinger solver.
 
+    Solving Schrödinger's equation using a FDTD(FTCS) scheme. The code spawns a
+    wave with certain specified characteristics and a potential barrier with
+    a defined extent and amplitude.
+
+    After the simulation, the code produces a video schrodinger.mp4 with the
+    plot showing the evolution.
+
+    Run: python3 schrodinger.py --help
+        for help on the parameters that can be tuned.
+
     Author: Alberto Garcia Garcia (albert.garcia.ua@gmail.com)
 
 """
@@ -25,6 +35,20 @@ def generate_potential_barrier(
         amplitude: float
 ) -> np.array:
 
+    """ Generate a potential barrier.
+
+    Args:
+        points: Number of points in the spatial domain.
+        range: Pair of points in the spatial domain (left, right).
+        amplitude: Amplitude for the potential barrier.
+
+    Returns:
+        An array of the same size as the spatial domain (in points) with all
+        zeroes except for the points which fall in the range of the potential
+        barrier which contain its amplitude.
+
+    """
+
     _potential = np.zeros(points)
     _potential[range[0]:range[1]] = amplitude
     return _potential
@@ -34,6 +58,20 @@ def generate_gaussian(
         t: float,
         sigma: float,
 ) -> np.array:
+
+    """ Generate a Gaussian.
+
+    Args:
+        x: Spatial domain.
+        t: Time shift.
+        sigma: standard deviation.
+
+    Returns:
+        An array the same size as the spatial domain with the values for the
+        Gaussian shifted by a determined time shift with the specified
+        standard deviation.
+
+    """
 
     return np.exp(-(x - t)**2 / (2.0 * sigma**2))
 
@@ -74,10 +112,20 @@ if __name__ == "__main__":
         default=1.0,
         help="Mass")
     PARSER.add_argument(
+        "--gaussian_shift",
+        type=float,
+        default=256.0,
+        help="Gaussian shift from the origin")
+    PARSER.add_argument(
         "--gaussian_sigma",
         type=float,
         default=32.0,
-        help="Gaussian sigma for starting wave function.")
+        help="Gaussian sigma for starting wave function")
+    PARSER.add_argument(
+        "--k",
+        type=int,
+        default=16,
+        help="Wave number")
     PARSER.add_argument(
         "--snapshot",
         type=int,
@@ -108,6 +156,8 @@ if __name__ == "__main__":
     SNAPSHOT_FREQUENCY = ARGS.snapshot
     POTENTIAL_AMPLITUDE = ARGS.v
     POTENTIAL_RANGE = ARGS.v_range
+    GAUSSIAN_SHIFT = ARGS.gaussian_shift
+    K = ARGS.k
 
     # Other constants ----------------------------------------------------------
 
@@ -130,12 +180,11 @@ if __name__ == "__main__":
     INITIAL_RANGE = range(1, int(N / 2))
     X_INITIAL = X[INITIAL_RANGE] / DX
 
-    X0 = round(N / 2.0) - 5.0 * GAUSSIAN_SIGMA
-    K0 = np.pi / 16.0
+    K0 = np.pi / K
 
     GAUSSIAN = generate_gaussian(
         X_INITIAL,
-        X0,
+        GAUSSIAN_SHIFT,
         GAUSSIAN_SIGMA
     )
     INITIAL_COSINE = np.cos(K0 * X_INITIAL)
